@@ -465,6 +465,12 @@ public:
 
     bool IsReady() const { return canvas_ != nullptr; }
 
+    // 图片表情模式：停掉线条脸的渲染定时器并隐藏 canvas，把屏幕让给 emoji 图片
+    void Suspend() {
+        if (timer_) lv_timer_pause(timer_);
+        if (canvas_) lv_obj_add_flag(canvas_, LV_OBJ_FLAG_HIDDEN);
+    }
+
     void SetExpression(Expression e) { expression_ = e; }
     void SetOverlay(const Overlay& o) { overlay_ = o; }
     void StartSpeaking(uint32_t duration_ms) {
@@ -1071,6 +1077,7 @@ public:
 
     void OnPetted() {
         if (!avatar_.IsReady()) return;
+        if (kUseImageFaces) SpiLcdDisplay::SetEmotion("loving");
         DisplayLockGuard lock(this);
         avatar_.SetExpression(shizhou_avatar::Expression::Loving);
         shizhou_avatar::Overlay o;
@@ -1083,6 +1090,10 @@ public:
     }
 
     void SetEmotion(const char* emotion) override {
+        // 图片表情模式下，开机阶段的芯片图标换成 neutral 表情图
+        if (kUseImageFaces && emotion && strcmp(emotion, "microchip_ai") == 0) {
+            emotion = "neutral";
+        }
         SpiLcdDisplay::SetEmotion(emotion);
         DisplayLockGuard lock(this);
         HideEmojiBoxLocked();
@@ -1173,8 +1184,12 @@ private:
     int canvas_w_ = 320;
     int canvas_h_ = 240;
     static constexpr uint64_t IDLE_TIMEOUT_US = 8 * 1000 * 1000;
+    // true：用 assets 分区里的表情图片（emoji_collection，建议 320x240 整屏 PNG）当脸，
+    //       线条脸停止渲染；false：恢复原来的线条脸。
+    static constexpr bool kUseImageFaces = true;
 
     void HideEmojiBoxLocked() {
+        if (kUseImageFaces) return;
         if (avatar_.IsReady() && emoji_box_) {
             lv_obj_add_flag(emoji_box_, LV_OBJ_FLAG_HIDDEN);
         }
@@ -1223,7 +1238,10 @@ private:
 
         lv_obj_set_style_bg_opa(container_, LV_OPA_TRANSP, 0);
         if (content_) lv_obj_set_style_bg_opa(content_, LV_OPA_TRANSP, 0);
-        if (emoji_box_) {
+        if (kUseImageFaces) {
+            avatar_.Suspend();
+            if (emoji_box_) lv_obj_remove_flag(emoji_box_, LV_OBJ_FLAG_HIDDEN);
+        } else if (emoji_box_) {
             lv_obj_add_flag(emoji_box_, LV_OBJ_FLAG_HIDDEN);
         }
         if (top_bar_)    lv_obj_add_flag(top_bar_, LV_OBJ_FLAG_HIDDEN);
