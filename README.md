@@ -1,3 +1,66 @@
+# 🦊 StackChan-XiaoZhi · 图片表情版
+
+> 让 M5Stack CoreS3 Stack-chan 的脸从「线条脸」换成**你自己的整屏表情图片**，情绪灯环、点头摇头、人脸追踪全部保留。
+
+本仓库 fork 自 [heavenchenggong/stackchan-xiaozhi-firmware](https://github.com/heavenchenggong/stackchan-xiaozhi-firmware)（上游为 [78/xiaozhi-esp32](https://github.com/78/xiaozhi-esp32)），改动直接在本仓库的 `main` 分支上，基于上游 `main`。实机验证过的固件是用同一处改动在上游 `v1.0.0` 上编译的。
+
+## 这个版本改了什么
+
+原固件的脸是代码实时画出来的线条脸，assets 分区里的表情图片其实没有被显示，所以单纯替换表情包不会有任何效果。这个分支做了一处小改动（`main/boards/m5stack-core-s3/m5stack_core_s3.cc`，约 20 行）：
+
+- 线条脸停止绘制，改为整屏显示 assets 分区里与当前情绪同名的图片（`emoji_collection`）。
+- 开机阶段的芯片图标换成 `neutral` 表情，摸头时显示 `loving`。
+- 情绪灯环、舵机点头 / 摇头、人脸追踪、休眠逻辑都没有动。
+- 开关是一个常量 `kUseImageFaces`，改成 `false` 就恢复线条脸。
+
+已知取舍：每种情绪是一张静态图，线条脸原有的眨眼和说话口型动画不再有。
+
+## 准备你自己的表情图
+
+固件按固定的 21 个文件名找图，缺哪张就保留默认图：
+
+`neutral` `happy` `laughing` `funny` `sad` `angry` `crying` `loving` `embarrassed` `surprised` `shocked` `thinking` `winking` `cool` `relaxed` `delicious` `kissy` `confident` `sleepy` `silly` `confused`（均为 `.png`）
+
+建议用 4:3 的图，脚本会自动居中裁剪、缩放到 320x240 并压成 256 色，保证 21 张整屏图能放进约 5.9 MB 的 assets 分区。
+
+## 编译与烧录
+
+需要 ESP-IDF v5.5.2。
+
+```bash
+git clone https://github.com/DogcanAmee/stackchan-xiaozhi-firmware.git
+cd stackchan-xiaozhi-firmware
+idf.py set-target esp32s3
+idf.py build
+
+# 把自己的表情图打包成 assets 分区镜像
+pip install pillow
+python scripts/pack_faces.py --base build/generated_assets.bin --faces ./my-faces --out faces-assets.bin
+
+# 合并成一个文件，烧到 0x0
+esptool.py --chip esp32s3 merge_bin -o merged-binary.bin \
+  --flash_mode dio --flash_size 16MB --flash_freq 80m \
+  0x0      build/bootloader/bootloader.bin \
+  0x8000   build/partition_table/partition-table.bin \
+  0xd000   build/ota_data_initial.bin \
+  0x10000  build/srmodels/srmodels.bin \
+  0x410000 build/StackChan-XiaoZhi.bin \
+  0xa10000 faces-assets.bin
+esptool.py --chip esp32s3 -b 460800 write_flash 0x0 merged-binary.bin
+```
+
+以后只想换一套表情图时不用重新编译：重新运行 `pack_faces.py`，把生成的文件单独烧到 `0xa10000` 即可。
+
+## 踩过的坑
+
+- **烧写地址**：用网页烧录工具时，合并固件必须烧到 `0x0`，表情分区是 `0xa10000`。有的工具会把地址自动识别成 `0x10000`，需要手动改，否则会覆盖语音模型或主程序。
+- **烧完灯环不亮**：反复烧录后，底座上控制灯环的 PY32 芯片可能卡住，表现为语音开灯显示成功但灯不亮。拔掉 USB、长按电源键彻底关机再开机即可恢复。
+- **整片擦除后需要重新配网**。
+
+---
+
+以下为上游 README 原文。
+
 # 🤖 StackChan-XiaoZhi (Claude Code bridge 适配版)
 
 > M5Stack Core S3 Stack-chan 陪伴机器人固件 — Servo MCP 工具 + 唤醒词长期在线 + Claude Code 桥接
